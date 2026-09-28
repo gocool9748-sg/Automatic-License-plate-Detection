@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+ocr_venv/
+awiros_venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+*.env
+
+# Debug/output
+debug_crops/
+debug_crops_webcam/
+results/
+runs/
+
+# Videos / large test files
+videos/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Python cache
+.pytest_cache/
+.mypy_cache/
+
+# PaddleOCR source/cache
+PaddleOCR/
+
+# OS
+Thumbs.db
+.DS_Store
+
+old_scripts/

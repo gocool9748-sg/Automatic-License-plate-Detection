@@ -1,4 +1,3 @@
-
 import copy
 import os
 import re
@@ -24,9 +23,43 @@ YOLO_WEIGHTS = r"G:\LPR\models\best.pt"
 
 CAMERA_INDEX = 0
 
-# YOLO
+# YOLO - EXISTING LICENSE PLATE DETECTOR (UNCHANGED)
 YOLO_CONFIDENCE = 0.45
 YOLO_IMGSZ = 512
+
+# ============================================================
+# VEHICLE CLASSIFICATION - UVH-26 INDIAN TRAFFIC MODEL
+# ============================================================
+# Separate model: does NOT replace or modify the existing plate YOLO.
+VEHICLE_WEIGHTS = r"G:\LPR\models\uvh26_vehicle.pt"
+VEHICLE_CONFIDENCE = 0.40
+VEHICLE_IMGSZ = 640
+VEHICLE_INFER_EVERY_N_FRAMES = 2
+
+# Explicit duplicate suppression for the vehicle-classification model.
+# UVH-26/Ultralytics already applies NMS internally, but this extra pass
+# guarantees that heavily overlapping detections are not drawn as separate
+# vehicle boxes in the webcam output.
+VEHICLE_DUPLICATE_IOU = 0.50
+VEHICLE_DUPLICATE_CONTAINMENT = 0.80
+
+# UVH-26 fine-grained Indian vehicle classes -> project classes.
+VEHICLE_CLASS_MAP = {
+    "Hatchback": "CAR",
+    "Sedan": "CAR",
+    "SUV": "CAR",
+    "MUV": "CAR",
+    "Van": "CAR",
+    "LCV": "TRUCK",
+    "Truck": "TRUCK",
+    "Bus": "BUS",
+    "Mini-bus": "BUS",
+    "Tempo-traveller": "BUS",
+    "Three-wheeler": "AUTO",
+    "Two-wheeler": "BIKE",
+    "Bicycle": "BIKE",
+    "Others": "OTHER",
+}
 
 # OCR
 OCR_INTERVAL = 0.14          # seconds between OCR jobs
@@ -47,6 +80,10 @@ MAX_SAVED_CROPS_PER_TRACK = 20
 # OpenCV normally gives the camera image in its real orientation.
 # Keep this False for ANPR. Set True only if you want a selfie-style mirror.
 MIRROR_CAMERA = False
+
+# Final per-vehicle results are appended here as CSV
+# (time,plate,vehicle,confidence). Set to None to disable file logging.
+RESULTS_LOG = r"G:\LPR\results.log"
 
 # ============================================================
 # INDIAN PLATE FORMAT
@@ -112,9 +149,19 @@ stop_event = threading.Event()
 
 frame_count = 0
 
+# Latest vehicle detections from the separate UVH-26 model.
+# This is independent of the existing plate YOLO state.
+vehicle_detections = []
+
 # Debug crop bookkeeping.
 saved_crop_count = defaultdict(int)
 crop_save_sequence = 0
+
+# Vehicle type votes per plate track (weighted by detection confidence).
+track_vehicle_votes = defaultdict(lambda: defaultdict(float))
+
+# Tracks whose final result box has already been printed.
+reported_tracks = set()
 
 
 # ============================================================
@@ -925,6 +972,273 @@ def ocr_worker():
 
 
 # ============================================================
+# VEHICLE CLASSIFICATION HELPERS
+# ============================================================
+
+def map_vehicle_class(original_class):
+    """Map UVH-26's detailed Indian vehicle classes to project classes."""
+    return VEHICLE_CLASS_MAP.get(str(original_class), "OTHER")
+
+
+def vehicle_box_iou(box_a, box_b):
+    """Calculate IoU between two xyxy vehicle boxes."""
+    ax1, ay1, ax2, ay2 = box_a[:4]
+    bx1, by1, bx2, by2 = box_b[:4]
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    intersection = inter_w * inter_h
+
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = area_a + area_b - intersection
+
+    return intersection / union if union > 0.0 else 0.0
+
+
+def vehicle_containment_ratio(box_a, box_b):
+    """
+    Return the larger fraction of one box covered by the other.
+
+    This catches duplicate boxes where one prediction is mostly contained
+    inside another even when their IoU is slightly below the NMS threshold.
+    """
+    ax1, ay1, ax2, ay2 = box_a[:4]
+    bx1, by1, bx2, by2 = box_b[:4]
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    intersection = inter_w * inter_h
+
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+
+    smaller_area = min(area_a, area_b)
+    return intersection / smaller_area if smaller_area > 0.0 else 0.0
+
+
+def suppress_duplicate_vehicle_detections(detections):
+    """
+    Keep one highest-confidence box for each physical vehicle.
+
+    Detections are compared across all vehicle classes because the project
+    classes are coarser than UVH-26's original classes. For example, two
+    overlapping predictions such as Sedan/CAR and SUV/CAR are still treated
+    as duplicates.
+    """
+    if len(detections) <= 1:
+        return detections
+
+    # Highest confidence first so the surviving box is always the strongest
+    # prediction for an overlapping vehicle.
+    candidates = sorted(
+        detections,
+        key=lambda d: float(d[5]),
+        reverse=True,
+    )
+
+    kept = []
+
+    for candidate in candidates:
+        candidate_box = candidate[:4]
+        is_duplicate = False
+
+        for existing in kept:
+            existing_box = existing[:4]
+            iou = vehicle_box_iou(candidate_box, existing_box)
+            containment = vehicle_containment_ratio(
+                candidate_box,
+                existing_box,
+            )
+
+            if (
+                iou >= VEHICLE_DUPLICATE_IOU
+                or containment >= VEHICLE_DUPLICATE_CONTAINMENT
+            ):
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            kept.append(candidate)
+
+    # Keep drawing order stable and left-to-right for a cleaner display.
+    kept.sort(key=lambda d: (d[0], d[1]))
+    return kept
+
+
+def point_inside_box(px, py, box):
+    """Return True when a point lies inside an xyxy vehicle box."""
+    vx1, vy1, vx2, vy2 = box
+    return vx1 <= px <= vx2 and vy1 <= py <= vy2
+
+
+def find_vehicle_for_plate(plate_box):
+    """
+    Associate an existing license-plate detection with the vehicle
+    containing the plate center. Existing plate detection/OCR is untouched.
+    """
+    if not vehicle_detections:
+        return "UNKNOWN", 0.0
+
+    x1, y1, x2, y2 = plate_box
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+
+    best = None
+    best_score = -1.0
+
+    for vx1, vy1, vx2, vy2, vehicle_type, confidence in vehicle_detections:
+        if point_inside_box(cx, cy, (vx1, vy1, vx2, vy2)):
+            # Prefer the smallest containing vehicle box.
+            area = max((vx2 - vx1) * (vy2 - vy1), 1.0)
+            score = confidence + 1000000.0 / area
+            if score > best_score:
+                best_score = score
+                best = (vehicle_type, confidence)
+
+    if best is None:
+        return "UNKNOWN", 0.0
+
+    return best
+
+
+def draw_vehicle_box(frame, box, vehicle_type, confidence):
+    """Draw the Indian vehicle classification without changing plate drawing."""
+    x1, y1, x2, y2 = map(int, box)
+
+    cv2.rectangle(
+        frame,
+        (x1, y1),
+        (x2, y2),
+        (255, 140, 0),
+        2
+    )
+
+    label = f"{vehicle_type} {confidence:.2f}"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.60
+    thickness = 2
+
+    (tw, th), _ = cv2.getTextSize(
+        label, font, scale, thickness
+    )
+
+    top = max(0, y1 - th - 8)
+
+    cv2.rectangle(
+        frame,
+        (x1, top),
+        (x1 + tw + 8, y1),
+        (255, 140, 0),
+        -1
+    )
+
+    cv2.putText(
+        frame,
+        label,
+        (x1 + 4, y1 - 5),
+        font,
+        scale,
+        (0, 0, 0),
+        thickness,
+        cv2.LINE_AA
+    )
+
+
+# ============================================================
+# FINAL RESULT REPORTING (one clean box per vehicle)
+# ============================================================
+
+def vote_vehicle(track_id, vehicle_type, confidence):
+    """Accumulate vehicle-type votes so one bad frame can't flip the label."""
+    if vehicle_type != "UNKNOWN":
+        track_vehicle_votes[track_id][vehicle_type] += confidence
+
+
+def get_track_vehicle(track_id):
+    """Vehicle type with the highest accumulated vote for this track."""
+    votes = track_vehicle_votes.get(track_id)
+    if not votes:
+        return "UNKNOWN"
+    return max(votes, key=votes.get)
+
+
+def get_track_confidence(track_id, plate):
+    """Average OCR confidence (0-100) of readings that support the stable plate."""
+    with result_lock:
+        confs = [
+            c for t, c in zip(
+                track_history[track_id],
+                track_confidence[track_id]
+            )
+            if t == plate
+        ]
+
+        if not confs:
+            confs = list(track_confidence[track_id])
+
+    return sum(confs) / len(confs) if confs else 0.0
+
+
+def format_result_box(plate, vehicle, confidence, timestamp):
+    lines = [
+        f"Plate: {plate}",
+        f"Vehicle: {vehicle}",
+        f"Confidence: {confidence:.0f}%",
+        f"Time: {timestamp}",
+    ]
+    inner = max(max(len(l) for l in lines) + 2, 26)
+
+    out = ["┌" + "─" * inner + "┐"]
+    for l in lines:
+        out.append("│ " + l.ljust(inner - 1) + "│")
+    out.append("└" + "─" * inner + "┘")
+    return "\n".join(out)
+
+
+def report_vehicle(track_id):
+    """Print the final result box once per track, when the plate is stable."""
+    if track_id in reported_tracks:
+        return
+
+    with result_lock:
+        plate = stable_text.get(track_id, "")
+
+    vehicle = get_track_vehicle(track_id)
+
+    # Wait until both plate and vehicle type are known.
+    if not plate or vehicle == "UNKNOWN":
+        return
+
+    confidence = get_track_confidence(track_id, plate)
+    timestamp = time.strftime("%H:%M:%S")
+
+    box = format_result_box(plate, vehicle, confidence, timestamp)
+    print("\n" + box + "\n")
+
+    if RESULTS_LOG:
+        try:
+            with open(RESULTS_LOG, "a", encoding="utf-8") as f:
+                f.write(
+                    f"{timestamp},{plate},{vehicle},{confidence:.0f}\n"
+                )
+        except OSError:
+            pass
+
+    reported_tracks.add(track_id)
+
+
+# ============================================================
 # DRAW
 # ============================================================
 
@@ -934,7 +1248,9 @@ def draw_result(
     y1,
     x2,
     y2,
-    track_id
+    track_id,
+    vehicle_type="UNKNOWN",
+    vehicle_confidence=0.0
 ):
 
     with result_lock:
@@ -951,20 +1267,26 @@ def draw_result(
     # Green box when stable, yellow otherwise.
     if stable:
         color = (0, 255, 0)
-        label = (
+        plate_label = (
             f"{stable} | ID {track_id}"
         )
     else:
         color = (0, 220, 255)
 
         if latest:
-            label = (
+            plate_label = (
                 f"Reading: {latest[0]}"
             )
         else:
-            label = (
+            plate_label = (
                 f"Reading... | ID {track_id}"
             )
+
+    # Add vehicle type to the existing plate label.
+    if vehicle_type != "UNKNOWN":
+        label = f"{vehicle_type} | {plate_label}"
+    else:
+        label = plate_label
 
     cv2.rectangle(
         frame,
@@ -1019,6 +1341,12 @@ def main():
     global frame_count
     global awiros_ocr
 
+    # Make sure box-drawing characters print correctly on Windows.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     stop_event.clear()
 
     # Start each run with a clean debug folder.
@@ -1032,7 +1360,19 @@ def main():
 
     print("[1] Loading YOLO...")
 
+    # EXISTING PLATE YOLO - UNCHANGED
     model = YOLO(YOLO_WEIGHTS)
+
+    print("[1A] Loading UVH-26 Indian vehicle classification model...")
+
+    if not os.path.isfile(VEHICLE_WEIGHTS):
+        print(f"[ERROR] Vehicle model not found: {VEHICLE_WEIGHTS}")
+        print("[ERROR] Download/copy uvh26_vehicle.pt to G:\\LPR\\models first.")
+        return
+
+    vehicle_model = YOLO(VEHICLE_WEIGHTS)
+    print(f"[Vehicle] Weights: {VEHICLE_WEIGHTS}")
+    print(f"[Vehicle] Classes: {vehicle_model.names}")
 
     if torch.cuda.is_available():
         device = 0
@@ -1135,7 +1475,84 @@ def main():
             frame_count += 1
 
             # ------------------------------------------------
-            # YOLO / tracking
+            # UVH-26 VEHICLE CLASSIFICATION
+            # ------------------------------------------------
+            # Runs separately from the existing plate YOLO.
+            # It is intentionally throttled to every N frames for speed.
+            global vehicle_detections
+
+            if frame_count % VEHICLE_INFER_EVERY_N_FRAMES == 0:
+                vehicle_results = vehicle_model.predict(
+                    frame,
+                    conf=VEHICLE_CONFIDENCE,
+                    imgsz=VEHICLE_IMGSZ,
+                    device=device,
+                    verbose=False
+                )
+
+                new_vehicle_detections = []
+                vehicle_result = vehicle_results[0]
+
+                if vehicle_result.boxes is not None:
+                    for vbox in vehicle_result.boxes:
+                        vxyxy = (
+                            vbox.xyxy[0]
+                            .cpu()
+                            .numpy()
+                        )
+
+                        vx1, vy1, vx2, vy2 = map(int, vxyxy)
+
+                        vx1 = max(0, vx1)
+                        vy1 = max(0, vy1)
+                        vx2 = min(frame.shape[1] - 1, vx2)
+                        vy2 = min(frame.shape[0] - 1, vy2)
+
+                        if vx2 <= vx1 or vy2 <= vy1:
+                            continue
+
+                        vclass_id = int(vbox.cls[0])
+                        vconfidence = float(vbox.conf[0])
+                        original_class = vehicle_model.names[vclass_id]
+                        vehicle_type = map_vehicle_class(original_class)
+
+                        new_vehicle_detections.append(
+                            (
+                                vx1, vy1, vx2, vy2,
+                                vehicle_type,
+                                vconfidence
+                            )
+                        )
+
+                # UVH-26 can occasionally return two highly overlapping
+                # boxes for the same physical vehicle. Remove those before
+                # storing/drawing them and before plate-to-vehicle matching.
+                before_count = len(new_vehicle_detections)
+                vehicle_detections = suppress_duplicate_vehicle_detections(
+                    new_vehicle_detections
+                )
+                after_count = len(vehicle_detections)
+
+                if after_count < before_count:
+                    print(
+                        f"[Vehicle NMS] Removed {before_count - after_count} "
+                        f"duplicate box(es). Kept {after_count}."
+                    )
+
+            # Draw the latest vehicle detections.
+            for (
+                vx1, vy1, vx2, vy2,
+                vehicle_type, vconfidence
+            ) in vehicle_detections:
+                draw_vehicle_box(
+                    frame,
+                    (vx1, vy1, vx2, vy2),
+                    vehicle_type,
+                    vconfidence
+                )
+
+            # ------------------------------------------------
+            # EXISTING PLATE YOLO / tracking - UNCHANGED
             # ------------------------------------------------
 
             results = model.track(
@@ -1204,6 +1621,23 @@ def main():
 
                     box_width = x2 - x1
 
+                    # Associate this existing plate detection with
+                    # the vehicle box from UVH-26.
+                    vehicle_type, vehicle_confidence = find_vehicle_for_plate(
+                        (x1, y1, x2, y2)
+                    )
+
+                    # Accumulate vehicle-type votes, print the final
+                    # result box once the plate is stable, and use the
+                    # voted type for the on-screen label.
+                    vote_vehicle(
+                        track_id,
+                        vehicle_type,
+                        vehicle_confidence
+                    )
+                    report_vehicle(track_id)
+                    vehicle_type = get_track_vehicle(track_id)
+
                     # ------------------------------------------------
                     # OCR scheduling
                     #
@@ -1263,7 +1697,9 @@ def main():
                         y1,
                         x2,
                         y2,
-                        track_id
+                        track_id,
+                        vehicle_type,
+                        vehicle_confidence
                     )
 
             # ------------------------------------------------
@@ -1337,6 +1773,8 @@ def main():
                 best_crop.clear()
                 best_crop_quality.clear()
                 saved_crop_count.clear()
+                track_vehicle_votes.clear()
+                reported_tracks.clear()
 
                 print(
                     "[RESET] OCR history cleared."

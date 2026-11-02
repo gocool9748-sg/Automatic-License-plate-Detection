@@ -52,7 +52,8 @@ pip install -r requirements.txt
 ```
 
 `requirements.txt` installs `paddlepaddle-gpu` on Windows/Linux. On a machine
-without an NVIDIA GPU, install `paddlepaddle` instead.
+without an NVIDIA GPU, install `paddlepaddle` instead. The OCR worker detects
+this and runs on the CPU (slower).
 
 On first run the OCR code clones the PaddleOCR repo into `PaddleOCR/` (needed
 to build the model). Pass `--paddleocr_dir` to `test.py` to use an existing copy.
@@ -110,6 +111,16 @@ python test.py --image_path crops/ --weights models/model.safetensors --output_j
 
 ```bash
 python vehicle_test.py
+```
+
+## Tests
+
+The plate-text helpers (cleaning, format check, OCR-confusion fixes and
+voting) have unit tests that need no GPU or model weights:
+
+```bash
+pip install pytest
+python -m pytest tests
 ```
 
 ## Tuning

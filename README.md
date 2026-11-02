@@ -60,20 +60,24 @@ to build the model). Pass `--paddleocr_dir` to `test.py` to use an existing copy
 You also need the **UVH-26 vehicle model** (`uvh26_vehicle.pt`). It is not in
 this repo; place it in `models/`.
 
-### Configure paths
+### File locations
 
-`webcam.py`, `videotest.py` and `vehicle_test.py` use absolute Windows paths
-under `G:\LPR\`. Edit the constants at the top of each script to match where
-you cloned the repo:
+All paths are relative to the repo folder, so the scripts work wherever you
+clone it. Expected layout:
 
-```python
-YOLO_WEIGHTS    = r"G:\LPR\models\best.pt"
-VEHICLE_WEIGHTS = r"G:\LPR\models\uvh26_vehicle.pt"
-AWIROS_WORKER   = r"G:\LPR\awiros_worker.py"
-RESULTS_LOG     = r"G:\LPR\results.log"
-DEBUG_CROPS_DIR = r"G:\LPR\debug_crops_webcam"
-VIDEO_PATH      = r"G:\LPR\videos\srm5.mp4"   # videotest.py only
 ```
+models/best.pt               plate detector (in repo)
+models/model.safetensors     OCR weights (Git LFS)
+models/uvh26_vehicle.pt      vehicle model (add yourself)
+videos/srm5.mp4              input for videotest.py (VIDEO_PATH)
+videos/movingcars.mp4        input for vehicle_test.py
+results/                     vehicle_test.py output video
+results.log                  per-vehicle CSV log
+debug_crops_webcam/          best plate crop per vehicle
+```
+
+To use a different video, change `VIDEO_PATH` at the top of `videotest.py` or
+`vehicle_test.py`.
 
 ## Usage
 

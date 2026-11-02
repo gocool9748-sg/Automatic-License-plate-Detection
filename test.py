@@ -114,7 +114,7 @@ def parse_args():
     p.add_argument("--image_path", required=True,
                     help="Path to a single image or a directory of images.")
     p.add_argument("--weights", default="",
-                    help="Path to model.safetensors (default: next to this script).")
+                    help="Path to model.safetensors (default: next to this script or in models/).")
     p.add_argument("--dict_path", default="",
                     help="Path to en_dict.txt (default: next to this script).")
     p.add_argument("--device", default="gpu", choices=["gpu", "cpu"],
@@ -130,11 +130,12 @@ def resolve_path(user_path: str, filename: str) -> str:
     """Use user-supplied path if it exists, else fall back to script dir."""
     if user_path and os.path.exists(user_path):
         return user_path
-    alt = _SCRIPT_DIR / filename
-    if alt.exists():
-        return str(alt)
+    for alt in (_SCRIPT_DIR / filename, _SCRIPT_DIR / "models" / filename):
+        if alt.exists():
+            return str(alt)
     raise FileNotFoundError(
-        f"Could not find {filename}. Place it next to this script or pass its path."
+        f"Could not find {filename}. Place it next to this script, in "
+        f"models/, or pass its path."
     )
 
 

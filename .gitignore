@@ -47,3 +47,5 @@ old_scripts/
 *.pth
 *.onnx
 *.safetensors
+# Per-vehicle results written by webcam.py / videotest.py
+results.log

@@ -135,11 +135,17 @@ class AwirosEngine:
 
         self.paddle = paddle
 
-        if not paddle.is_compiled_with_cuda():
-            raise RuntimeError("Paddle was not compiled with CUDA.")
-
-        paddle.set_device("gpu")
-        print("[WORKER] Paddle GPU enabled.", flush=True)
+        if paddle.is_compiled_with_cuda():
+            paddle.set_device("gpu")
+            print("[WORKER] Paddle GPU enabled.", flush=True)
+        else:
+            # CPU-only Paddle (e.g. plain `paddlepaddle` package) still
+            # works, just slower, so don't refuse to start.
+            paddle.set_device("cpu")
+            print(
+                "[WORKER] Paddle has no CUDA support - running OCR on CPU.",
+                flush=True,
+            )
 
         self.post_process = build_post_process({
             "name": "CTCLabelDecode",

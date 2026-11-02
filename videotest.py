@@ -19,10 +19,14 @@ from ultralytics import YOLO
 # Smooth webcam + background OCR
 # ============================================================
 
-YOLO_WEIGHTS = r"G:\LPR\models\best.pt"
+# Paths are resolved relative to this script, so the project works from
+# wherever it is cloned.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+YOLO_WEIGHTS = os.path.join(BASE_DIR, "models", "best.pt")
 
 # Test video path - change this to any video you want to test.
-VIDEO_PATH = r"G:\LPR\videos\srm5.mp4"
+VIDEO_PATH = os.path.join(BASE_DIR, "videos", "srm5.mp4")
 
 # Keep video in its original orientation.
 MIRROR_CAMERA = False
@@ -35,7 +39,7 @@ YOLO_IMGSZ = 512
 # VEHICLE CLASSIFICATION - UVH-26 INDIAN TRAFFIC MODEL
 # ============================================================
 # Separate model: does NOT replace or modify the existing plate YOLO.
-VEHICLE_WEIGHTS = r"G:\LPR\models\uvh26_vehicle.pt"
+VEHICLE_WEIGHTS = os.path.join(BASE_DIR, "models", "uvh26_vehicle.pt")
 VEHICLE_CONFIDENCE = 0.25
 VEHICLE_IMGSZ = 640
 VEHICLE_INFER_EVERY_N_FRAMES = 2
@@ -46,7 +50,7 @@ VEHICLE_EVENT_COOLDOWN = 10.0  # seconds before the same plate can be recorded a
 
 # Final per-vehicle results are appended here as CSV
 # (timestamp,plate,vehicle,confidence). Set to None to disable file logging.
-RESULTS_LOG = r"G:\LPR\results.log"
+RESULTS_LOG = os.path.join(BASE_DIR, "results.log")
 
 # Print the per-detection "[VEHICLE DEBUG] raw=... kept=..." line every
 # inference. Keep False so the console only shows the clean result boxes.
@@ -85,7 +89,7 @@ DEBUG_OCR = False
 # Save the exact plate crops that are sent to Awiros OCR.
 # These are saved automatically so you can inspect what YOLO is giving OCR.
 DEBUG_SAVE_CROPS = True
-DEBUG_CROPS_DIR = r"G:\LPR\debug_crops_webcam"
+DEBUG_CROPS_DIR = os.path.join(BASE_DIR, "debug_crops_webcam")
 MAX_SAVED_CROPS_PER_TRACK = 20
 
 
@@ -483,7 +487,7 @@ def clean_debug_crop_folder():
 # Plate crops are sent over localhost TCP.
 # ============================================================
 
-AWIROS_WORKER = r"G:\LPR\awiros_worker.py"
+AWIROS_WORKER = os.path.join(BASE_DIR, "awiros_worker.py")
 AWIROS_HOST = "127.0.0.1"
 AWIROS_PORT = 48731
 AWIROS_START_TIMEOUT = 30.0
@@ -1454,7 +1458,7 @@ def main():
 
     if not os.path.isfile(VEHICLE_WEIGHTS):
         print(f"[ERROR] Vehicle model not found: {VEHICLE_WEIGHTS}")
-        print("[ERROR] Download/copy uvh26_vehicle.pt to G:\\LPR\\models first.")
+        print(f"[ERROR] Download/copy uvh26_vehicle.pt to {os.path.join(BASE_DIR, 'models')} first.")
         return
 
     vehicle_model = YOLO(VEHICLE_WEIGHTS)
@@ -1481,11 +1485,11 @@ def main():
         print(f"[ERROR] {e}")
         print()
         print("Check:")
-        print("  - G:\\LPR\\awiros_worker.py exists")
+        print(f"  - {AWIROS_WORKER} exists")
         print("  - models\\model.safetensors exists")
         print("  - en_dict.txt exists")
         print("  - PaddleOCR folder exists")
-        print("  - test.py is present in G:\\LPR")
+        print(f"  - test.py is present in {BASE_DIR}")
         return
 
     print("[3] Opening test video...")

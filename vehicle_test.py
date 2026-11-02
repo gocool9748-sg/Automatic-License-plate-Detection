@@ -1,12 +1,17 @@
+import os
 import cv2
 from ultralytics import YOLO
 
 # ==============================
 # PATHS
 # ==============================
-MODEL_PATH = r"G:\LPR\models\uvh26_vehicle.pt"
-VIDEO_PATH = r"G:\LPR\videos\movingcars.mp4"
-OUTPUT_PATH = r"G:\LPR\results\vehicle_classified.mp4"
+# Paths are resolved relative to this script, so the project works from
+# wherever it is cloned.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+MODEL_PATH = os.path.join(BASE_DIR, "models", "uvh26_vehicle.pt")
+VIDEO_PATH = os.path.join(BASE_DIR, "videos", "movingcars.mp4")
+OUTPUT_PATH = os.path.join(BASE_DIR, "results", "vehicle_classified.mp4")
 
 # ==============================
 # LOAD MODEL
@@ -61,6 +66,9 @@ print(f"[3] Video: {width}x{height} @ {fps:.2f} FPS")
 # ==============================
 # OUTPUT VIDEO
 # ==============================
+# cv2.VideoWriter fails silently if the folder does not exist.
+os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
 out = cv2.VideoWriter(

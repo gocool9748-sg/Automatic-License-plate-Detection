@@ -146,10 +146,15 @@ def load_safetensors_to_paddle(paddle_mod, weight_path: str):
 
 
 def resize_for_rec(img_bgr, target_shape):
+    """Resize to the model height, keeping aspect ratio, and right-pad."""
     _, h, w = target_shape
+    if img_bgr is None or img_bgr.size == 0:
+        raise ValueError("Empty image.")
     img_h, img_w = img_bgr.shape[:2]
     ratio = h / img_h
-    new_w = min(int(img_w * ratio), w)
+    # Very tall, narrow crops would otherwise round down to width 0,
+    # which cv2.resize rejects.
+    new_w = max(1, min(int(img_w * ratio), w))
     resized = cv2.resize(img_bgr, (new_w, h))
     if new_w < w:
         padded = np.zeros((h, w, 3), dtype=np.uint8)
@@ -226,9 +231,12 @@ def main():
             print(f"WARNING: Could not read {img_path}, skipping.")
             continue
 
-        tensor = paddle.to_tensor(
-            np.expand_dims(preprocess(img_bgr, IMAGE_SHAPE), axis=0)
-        )
+        try:
+            batch = np.expand_dims(preprocess(img_bgr, IMAGE_SHAPE), axis=0)
+        except ValueError as exc:
+            print(f"WARNING: Could not preprocess {img_path} ({exc}), skipping.")
+            continue
+        tensor = paddle.to_tensor(batch)
 
         with paddle.no_grad():
             preds = model(tensor)

@@ -1,4 +1,6 @@
 import os
+import sys
+
 import cv2
 from ultralytics import YOLO
 
@@ -17,6 +19,14 @@ OUTPUT_PATH = os.path.join(BASE_DIR, "results", "vehicle_classified.mp4")
 # LOAD MODEL
 # ==============================
 print("[1] Loading UVH-26 model...")
+
+# The UVH-26 weights are not shipped with the repo. Without this check
+# ultralytics tries to download "uvh26_vehicle.pt" as if it were one of its
+# own assets and fails with a confusing error.
+if not os.path.isfile(MODEL_PATH):
+    print(f"[ERROR] Vehicle model not found: {MODEL_PATH}")
+    print("Place the UVH-26 weights at models/uvh26_vehicle.pt.")
+    sys.exit(1)
 
 model = YOLO(MODEL_PATH)
 
@@ -54,8 +64,8 @@ CLASS_MAP = {
 cap = cv2.VideoCapture(VIDEO_PATH)
 
 if not cap.isOpened():
-    print("[ERROR] Could not open video!")
-    exit()
+    print(f"[ERROR] Could not open video: {VIDEO_PATH}")
+    sys.exit(1)
 
 fps = cap.get(cv2.CAP_PROP_FPS)
 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

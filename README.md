@@ -115,11 +115,14 @@ python vehicle_test.py
 
 ## Tests
 
-The plate-text helpers (cleaning, format check, OCR-confusion fixes and
-voting) have unit tests that need no GPU or model weights:
+The pure helpers in `webcam.py`, `videotest.py`, `test.py` and
+`awiros_worker.py` (plate text cleaning and voting, crop quality, vehicle
+box overlap, OCR socket framing) have unit tests that need no GPU or model
+weights. torch and ultralytics are stubbed out, so only a few light packages
+are required:
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt   # pytest, opencv-python, numpy
 python -m pytest tests
 ```
 

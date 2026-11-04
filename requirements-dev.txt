@@ -1,0 +1,7 @@
+# Lightweight dependencies for running the unit tests (no GPU, Paddle,
+# torch or ultralytics needed; the tests stub out the heavy modules).
+#   pip install -r requirements-dev.txt
+#   python -m pytest tests
+pytest>=7.0
+opencv-python>=4.8.0
+numpy>=1.21.0

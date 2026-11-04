@@ -290,14 +290,22 @@ def normalize_plate(raw):
     return ""
 
 
+def to_gray(image):
+    """Return a single-channel copy of a BGR, BGRA or already-gray crop."""
+    if image.ndim == 2:
+        return image
+    if image.shape[2] == 1:
+        return image[:, :, 0]
+    if image.shape[2] == 4:
+        return cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
 def sharpness(image):
     if image is None or image.size == 0:
         return 0.0
 
-    gray = cv2.cvtColor(
-        image,
-        cv2.COLOR_BGR2GRAY
-    )
+    gray = to_gray(image)
 
     return float(
         cv2.Laplacian(
@@ -343,7 +351,7 @@ def plate_quality(image):
     if w < MIN_PLATE_PIXEL_WIDTH:
         return 0.0
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = to_gray(image)
     sharp = cv2.Laplacian(gray, cv2.CV_64F).var()
     contrast = float(gray.std())
 

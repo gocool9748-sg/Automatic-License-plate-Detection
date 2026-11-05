@@ -1,4 +1,4 @@
-"""Unit tests for one-record-per-vehicle event logging in videotest.py.
+"""Unit tests for one-record-per-vehicle event logging in lpr.py.
 
 All OCR readings of one physical vehicle are pooled in a "cluster";
 register_clean_vehicle_event marks the vehicle as confirmed and
@@ -22,7 +22,7 @@ for name in ("torch", "ultralytics"):
             stub.YOLO = object
         sys.modules[name] = stub
 
-import videotest  # noqa: E402
+import lpr  # noqa: E402
 
 PLATE = "TN09AB1234"
 
@@ -38,24 +38,24 @@ def fresh_state(monkeypatch, tmp_path):
         ("track_frames", defaultdict(set)),
         ("known_plates", set()),
     ):
-        monkeypatch.setattr(videotest, attr, value)
-    monkeypatch.setattr(videotest, "last_vehicle_event", None, raising=False)
+        monkeypatch.setattr(lpr, attr, value)
+    monkeypatch.setattr(lpr, "last_vehicle_event", None, raising=False)
     log = tmp_path / "results.log"
-    monkeypatch.setattr(videotest, "RESULTS_LOG", str(log))
+    monkeypatch.setattr(lpr, "RESULTS_LOG", str(log))
     return log
 
 
 def read(plate=PLATE, track_id=1, conf=95.0, times=4, width=120):
     for _ in range(times):
-        videotest._cluster_add_locked(track_id, plate, conf, width)
+        lpr._cluster_add_locked(track_id, plate, conf, width)
 
 
 def confirm(plate=PLATE, vehicle="CAR", track_id=1):
-    videotest.register_clean_vehicle_event(plate, vehicle, 0.8, track_id, None)
+    lpr.register_clean_vehicle_event(plate, vehicle, 0.8, track_id, None)
 
 
 def flush():
-    videotest.flush_pending_events(force=True)
+    lpr.flush_pending_events(force=True)
 
 
 @pytest.mark.parametrize("plate", ["", None, "HELLO"])
@@ -63,7 +63,7 @@ def test_invalid_plate_is_ignored(plate, fresh_state):
     read()
     confirm(plate=plate)
     flush()
-    assert videotest.confirmed_vehicle_events == {}
+    assert lpr.confirmed_vehicle_events == {}
     assert not fresh_state.exists()
 
 
@@ -72,11 +72,11 @@ def test_first_event_is_recorded_and_logged(fresh_state, capsys):
     read(conf=90.0, times=2)
     confirm()
     flush()
-    record = videotest.confirmed_vehicle_events[PLATE]
+    record = lpr.confirmed_vehicle_events[PLATE]
     assert record["vehicle_type"] == "CAR"
     assert record["ocr_confidence"] == pytest.approx(85.0)
     assert record["track_id"] == 1
-    assert videotest.last_vehicle_event == record
+    assert lpr.last_vehicle_event == record
     line = fresh_state.read_text(encoding="utf-8").strip()
     assert line.endswith(f",{PLATE},CAR,85")
     assert PLATE in capsys.readouterr().out
@@ -97,7 +97,7 @@ def test_one_character_misread_joins_the_vehicle(fresh_state):
     read(plate="TN09AB1284", track_id=2, times=1)   # 1 character off
     confirm()
     flush()
-    assert list(videotest.confirmed_vehicle_events) == [PLATE]
+    assert list(lpr.confirmed_vehicle_events) == [PLATE]
 
 
 def test_fleet_buses_two_characters_apart_are_separate(fresh_state):
@@ -107,21 +107,21 @@ def test_fleet_buses_two_characters_apart_are_separate(fresh_state):
     confirm(plate="TN48BK2144", vehicle="BUS", track_id=1)
     confirm(plate="TN48BK2113", vehicle="BUS", track_id=2)
     flush()
-    assert set(videotest.confirmed_vehicle_events) == {"TN48BK2144", "TN48BK2113"}
+    assert set(lpr.confirmed_vehicle_events) == {"TN48BK2144", "TN48BK2113"}
 
 
 def test_plate_without_enough_support_is_not_logged(fresh_state):
-    read(times=videotest.FINAL_MIN_SUPPORT - 1)
+    read(times=lpr.FINAL_MIN_SUPPORT - 1)
     confirm()
     flush()
-    assert videotest.confirmed_vehicle_events == {}
+    assert lpr.confirmed_vehicle_events == {}
 
 
 def test_low_confidence_plate_is_not_logged(fresh_state):
-    read(conf=videotest.MIN_LOG_CONFIDENCE - 20)
+    read(conf=lpr.MIN_LOG_CONFIDENCE - 20)
     confirm()
     flush()
-    assert videotest.confirmed_vehicle_events == {}
+    assert lpr.confirmed_vehicle_events == {}
 
 
 def test_bus_votes_win_over_truck(fresh_state):
@@ -130,13 +130,13 @@ def test_bus_votes_win_over_truck(fresh_state):
     confirm(vehicle="TRUCK")
     confirm(vehicle="BUS")
     flush()
-    assert videotest.confirmed_vehicle_events[PLATE]["vehicle_type"] == "BUS"
+    assert lpr.confirmed_vehicle_events[PLATE]["vehicle_type"] == "BUS"
 
 
 def test_missing_log_setting_skips_file(monkeypatch, fresh_state):
-    monkeypatch.setattr(videotest, "RESULTS_LOG", "")
+    monkeypatch.setattr(lpr, "RESULTS_LOG", "")
     read()
     confirm()
     flush()
-    assert PLATE in videotest.confirmed_vehicle_events
+    assert PLATE in lpr.confirmed_vehicle_events
     assert not fresh_state.exists()

@@ -1,6 +1,6 @@
-"""Unit tests for the image helpers in test.py (the OCR inference script).
+"""Unit tests for the image helpers in ocr_image.py (the OCR inference script).
 
-test.py only needs OpenCV and NumPy at import time; Paddle is imported
+ocr_image.py only needs OpenCV and NumPy at import time; Paddle is imported
 inside main(), so these tests run without it. The script is loaded by
 file path because "test" would otherwise clash with Python's own
 standard-library test package.
@@ -14,7 +14,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_spec = importlib.util.spec_from_file_location("ocr_infer", REPO_ROOT / "test.py")
+_spec = importlib.util.spec_from_file_location("ocr_infer", REPO_ROOT / "src" / "ocr_image.py")
 ocr_infer = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ocr_infer)
 
@@ -83,9 +83,9 @@ def test_resolve_path_prefers_existing_user_path(tmp_path):
 
 
 def test_resolve_path_falls_back_to_repo_files():
-    # en_dict.txt ships next to the script.
+    # en_dict.txt ships in config/.
     found = ocr_infer.resolve_path("", "en_dict.txt")
-    assert Path(found) == REPO_ROOT / "en_dict.txt"
+    assert Path(found) == REPO_ROOT / "config" / "en_dict.txt"
 
 
 def test_resolve_path_reports_missing_file():

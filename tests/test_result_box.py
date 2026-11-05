@@ -1,4 +1,4 @@
-"""Unit tests for the console result box printed by webcam.py and videotest.py.
+"""Unit tests for the console result box printed by lpr.py and lpr.py.
 
 torch and ultralytics are stubbed out so these run without a GPU or the
 heavy ML dependencies (see tests/test_plate_text.py).
@@ -19,13 +19,12 @@ for name in ("torch", "ultralytics"):
             stub.YOLO = object
         sys.modules[name] = stub
 
-import videotest  # noqa: E402
-import webcam  # noqa: E402
+import lpr  # noqa: E402
 
 
-@pytest.fixture(params=[webcam, videotest], ids=["webcam", "videotest"])
-def module(request):
-    return request.param
+@pytest.fixture
+def module():
+    return lpr
 
 
 def test_box_contains_all_fields(module):

@@ -16,7 +16,8 @@ awiros_venv/
 .env
 *.env
 
-# Debug/output
+# Debug/output (everything a run writes goes to outputs/)
+outputs/
 debug_crops/
 debug_crops_webcam/
 results/
@@ -33,7 +34,8 @@ videos/
 .pytest_cache/
 .mypy_cache/
 
-# PaddleOCR source/cache
+# PaddleOCR source (cloned automatically into third_party/)
+third_party/
 PaddleOCR/
 
 # OS
@@ -47,5 +49,5 @@ old_scripts/
 *.pth
 *.onnx
 *.safetensors
-# Per-vehicle results written by webcam.py / videotest.py
+# Per-vehicle results (older layout wrote them to the project root)
 results.log

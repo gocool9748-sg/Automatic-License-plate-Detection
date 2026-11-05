@@ -24,13 +24,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+SCRIPT_DIR = Path(__file__).resolve().parent      # src/
+ROOT_DIR = SCRIPT_DIR.parent                        # project root
 HOST = "127.0.0.1"
 PORT = 48731
 
-WEIGHTS = SCRIPT_DIR / "models" / "model.safetensors"
-DICT_PATH = SCRIPT_DIR / "en_dict.txt"
-PADDLEOCR_DIR = SCRIPT_DIR / "PaddleOCR"
+WEIGHTS = ROOT_DIR / "models" / "model.safetensors"
+DICT_PATH = ROOT_DIR / "config" / "en_dict.txt"
+PADDLEOCR_DIR = ROOT_DIR / "third_party" / "PaddleOCR"
 
 CTC_NUM_CLASSES = 64
 NRTR_NUM_CLASSES = 67
@@ -123,9 +124,9 @@ class AwirosEngine:
     def __init__(self):
         print("[WORKER] Initializing Paddle/Awiros...", flush=True)
 
-        # Importing test.py is safe: test.py does not import torch.
+        # Importing ocr_image.py is safe: it does not import torch.
         sys.path.insert(0, str(SCRIPT_DIR))
-        from test import _ensure_paddleocr, load_safetensors_to_paddle
+        from ocr_image import _ensure_paddleocr, load_safetensors_to_paddle
 
         _ensure_paddleocr(str(PADDLEOCR_DIR))
 

@@ -1,8 +1,7 @@
 # LPR accuracy fixes (Nov 2026)
 
-These changes are in both `webcam.py` and `videotest.py`. The original files are
-saved in `backup_before_accuracy_fix/`. Search either script for
-`ACCURACY FIXES` to find the new settings.
+These changes are in `src/lpr.py` (the pipeline engine used by both `webcam.py` and
+`videotest.py`). Search it for `ACCURACY FIXES` to find the new settings.
 
 ## What was wrong (found by testing on `cb7.mp4`)
 
@@ -11,7 +10,7 @@ saved in `backup_before_accuracy_fix/`. Search either script for
    trained on normal bordered plates, so in colour it almost never detected
    them. It kept detecting the **"COLLEGE BUS" banner** on the windshield instead.
    The OCR then read the banner as things like `DL1EGE809` or `DL2CE8805`, and
-   some of those reached `results.log`.
+   some of those reached the results log.
 2. **Plate-format correction broke correct reads.** In `videotest.py`, a 9-character
    reading tried the 1-digit RTO layout first, so a correct `TN48W9259` became
    `TN4BW9259`. That's where `TN4BW9259`, `TN4BW4530`, `TN4BW4504` and `TN4BF2177`
@@ -42,12 +41,20 @@ saved in `backup_before_accuracy_fix/`. Search either script for
 
 ## Result on `cb7.mp4` (offline run of the real pipeline)
 
-See the summary in the chat, or run `videotest.py` on `videos\cb7.mp4`.
+| Vehicle | Before | After |
+|---|---|---|
+| Bus 27 | read once, logged as `TN4BW9259` | `TN48W9259 BUS`, 99% |
+| Bus 88 | mostly the "COLLEGE BUS" banner was read | `TN48BK2144 BUS`, 99% |
+| Bus 91 | logged as TRUCK, or not at all | `TN48BK2113 BUS`, 99% |
+| Car | correct | `TN45AX5428 CAR`, 99% |
+
+Bus 68's rear plate (`TN48BJ1175`) is visible for only about half a second and was
+not logged in the offline test (run at 12.5 analysed frames per second).
 
 ## For even better accuracy
 
-* **Known fleet list:** rename `known_plates.example.txt` to
-  `known_plates.txt` and add every bus plate. A reading that's 1–2 characters
+* **Known fleet list:** copy `config/known_plates.example.txt` to
+  `config/known_plates.txt` and add every bus plate. A reading that's 1–2 characters
   off is then corrected to the right bus.
 * **Retrain the plate detector** on frames from your own gate videos (yellow
   bus plates), so it doesn't need the grayscale workaround.

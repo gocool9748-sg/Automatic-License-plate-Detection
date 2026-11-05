@@ -9,11 +9,11 @@ from ultralytics import YOLO
 # ==============================
 # Paths are resolved relative to this script, so the project works from
 # wherever it is cloned.
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # project root
 
 MODEL_PATH = os.path.join(BASE_DIR, "models", "uvh26_vehicle.pt")
 VIDEO_PATH = os.path.join(BASE_DIR, "videos", "movingcars.mp4")
-OUTPUT_PATH = os.path.join(BASE_DIR, "results", "vehicle_classified.mp4")
+OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "vehicle_test", "vehicle_classified.mp4")
 
 # ==============================
 # LOAD MODEL

@@ -24,19 +24,34 @@ camera / video frame
   process from PyTorch/YOLO, because the two clash over CUDA/cuDNN DLLs on
   Windows. Plate crops are sent over `127.0.0.1:48731`.
 
-## Files
+## Project layout
 
-| File | Purpose |
-| --- | --- |
-| `webcam.py` | Real-time ANPR + vehicle classification from a webcam |
-| `videotest.py` | Same pipeline on a video file (`VIDEO_PATH`) |
-| `vehicle_test.py` | Vehicle classification only, writes an annotated video |
-| `awiros_worker.py` | Persistent OCR worker started automatically by the scripts above |
-| `test.py` | OCR on a single plate image or a folder of crops |
-| `en_dict.txt` | Character dictionary for the OCR model |
-| `models/best.pt` | YOLO license plate detector |
-| `models/model.safetensors` | Awiros ANPR-OCR weights (stored with Git LFS) |
-| `images/` | Sample images |
+```
+LPR/
+├── webcam.py                 run this: live webcam / IP camera
+├── videotest.py              run this: a video file
+├── src/
+│   ├── lpr.py                the pipeline engine (all settings at the top)
+│   ├── awiros_worker.py      OCR worker, started automatically
+│   └── ocr_image.py          OCR on a plate image / folder of crops
+├── tools/
+│   └── vehicle_test.py       vehicle classification only (annotated video)
+├── config/
+│   ├── en_dict.txt           OCR character dictionary
+│   ├── bytetrack_lpr.yaml    plate tracker settings
+│   └── known_plates.example.txt   fleet list template (copy to known_plates.txt)
+├── models/                   best.pt, model.safetensors (Git LFS), uvh26_vehicle.pt
+├── videos/                   input videos (not in git)
+├── images/                   sample images
+├── outputs/                  results.log, debug_crops/, vehicle_test/ (created on first run)
+├── third_party/PaddleOCR/    cloned automatically on first run (not in git)
+├── docs/ACCURACY_FIXES.md    what each accuracy setting fixes and why
+├── tests/                    unit tests (no GPU or model weights needed)
+└── requirements.txt, requirements-dev.txt
+```
+
+The two launchers in the top folder only set a few options (`SETTINGS`) and
+then run `src/lpr.py`, so both always use the same pipeline.
 
 ## Setup
 
@@ -55,8 +70,9 @@ pip install -r requirements.txt
 without an NVIDIA GPU, install `paddlepaddle` instead. The OCR worker detects
 this and runs on the CPU (slower).
 
-On first run the OCR code clones the PaddleOCR repo into `PaddleOCR/` (needed
-to build the model). Pass `--paddleocr_dir` to `test.py` to use an existing copy.
+On first run the OCR code clones the PaddleOCR repo into `third_party/PaddleOCR/`
+(needed to build the model). Pass `--paddleocr_dir` to `src/ocr_image.py` to use an
+existing copy.
 
 You also need the **UVH-26 vehicle model** (`uvh26_vehicle.pt`). It is not in
 this repo; place it in `models/`.
@@ -70,25 +86,35 @@ clone it. Expected layout:
 models/best.pt               plate detector (in repo)
 models/model.safetensors     OCR weights (Git LFS)
 models/uvh26_vehicle.pt      vehicle model (add yourself)
-videos/srm5.mp4              input for videotest.py (VIDEO_PATH)
-videos/movingcars.mp4        input for vehicle_test.py
-results/                     vehicle_test.py output video
-results.log                  per-vehicle CSV log
-debug_crops_webcam/          best plate crop per vehicle
+videos/*.mp4                 input videos (VIDEO_PATH in webcam.py / videotest.py)
+videos/movingcars.mp4        input for tools/vehicle_test.py
+outputs/results.log          per-vehicle CSV log
+outputs/debug_crops/         best plate crop per vehicle
+outputs/vehicle_test/        tools/vehicle_test.py output video
+config/known_plates.txt      your fleet list (optional, see Tuning)
 ```
 
-To use a different video, change `VIDEO_PATH` at the top of `videotest.py` or
-`vehicle_test.py`.
+To use a different video, change `VIDEO_PATH` in `webcam.py` / `videotest.py`
+(or at the top of `tools/vehicle_test.py`).
 
 ## Usage
 
-**Webcam**
+Both launchers run the same pipeline (`lpr.py`); they only differ in a few
+options set in their `SETTINGS`.
+
+**Live webcam** - reads `CAMERA_INDEX` (0 = first webcam, 1 = second, or an
+IP camera address like `"rtsp://user:pass@192.168.1.20:554/stream1"`). The
+camera is read in the background and the newest frame is always analysed, so
+results never lag behind; a camera that drops out is reconnected for up to
+`CAMERA_RECONNECT_SECONDS`:
 
 ```bash
 python webcam.py
 ```
 
-**Video file** (set `VIDEO_PATH` first)
+**Video file** - set `VIDEO_PATH` in `videotest.py`. The video plays at
+`PLAYBACK_SPEED` (0.4 = slow motion) and detection keeps up as best it can.
+Set `ACCURACY_MODE=True` there to analyse every frame instead:
 
 ```bash
 python videotest.py
@@ -96,29 +122,30 @@ python videotest.py
 
 Keys: `q` / `Esc` quit · `r` reset tracked plates · `Space` pause (video only).
 
-Final results are appended to `results.log` as CSV
+Final results are appended to `outputs/results.log` as CSV
 (`time,plate,vehicle,confidence`). The best plate crop for each vehicle is
 saved to the debug crops folder while `DEBUG_SAVE_CROPS = True`.
 
 **OCR on plate images**
 
 ```bash
-python test.py --image_path plate.jpg --weights models/model.safetensors --device cpu
-python test.py --image_path crops/ --weights models/model.safetensors --output_json results.json
+python src/ocr_image.py --image_path plate.jpg --weights models/model.safetensors --device cpu
+python src/ocr_image.py --image_path crops/ --weights models/model.safetensors --output_json results.json
 ```
 
 **Vehicle classification only**
 
 ```bash
-python vehicle_test.py
+python tools/vehicle_test.py
 ```
 
 ## Tests
 
-The pure helpers in `webcam.py`, `videotest.py`, `test.py` and
+The pure helpers in `src/lpr.py`, `src/ocr_image.py` and
 `awiros_worker.py` (plate text cleaning and voting, per-track plate history,
 crop quality, vehicle box overlap, plate-to-vehicle matching, vehicle type
-voting, one-record-per-vehicle event logging, OCR socket framing) have unit
+voting, one-record-per-vehicle event logging, launcher settings, live camera
+reader, OCR socket framing) have unit
 tests that need no GPU or model
 weights. torch and ultralytics are stubbed out, so only a few light packages
 are required:
@@ -130,7 +157,8 @@ python -m pytest tests
 
 ## Tuning
 
-Main settings at the top of `webcam.py` / `videotest.py`:
+Main settings at the top of `src/lpr.py` (a launcher can override any of them in
+its `SETTINGS`):
 
 | Setting | Default | Effect |
 | --- | --- | --- |
@@ -147,6 +175,6 @@ Main settings at the top of `webcam.py` / `videotest.py`:
 | `CLUSTER_MAX_DIFF` | 1 | Plates this many characters apart are treated as the same vehicle |
 | `YELLOW_BODY_IS_BUS` | True | A yellow vehicle the model calls TRUCK is logged as BUS |
 
-See [ACCURACY_FIXES.md](ACCURACY_FIXES.md) for what each accuracy setting fixes. For the
-best results, copy `known_plates.example.txt` to `known_plates.txt` and list every
+See [docs/ACCURACY_FIXES.md](docs/ACCURACY_FIXES.md) for what each accuracy setting fixes. For the
+best results, copy `config/known_plates.example.txt` to `config/known_plates.txt` and list every
 fleet plate: readings 1-2 characters off are then corrected to the right bus.

@@ -3,11 +3,11 @@ Awiros-ANPR-OCR single-image / directory inference script.
 
 Usage:
     pip install -r requirements.txt
-    python test.py --image_path plate.jpg
-    python test.py --image_path plates_dir/ --output_json results.json
+    python src/ocr_image.py --image_path plate.jpg
+    python src/ocr_image.py --image_path plates_dir/ --output_json results.json
 
 PaddleOCR repo is needed for model construction. On first run the script
-auto-clones it into a PaddleOCR/ subfolder next to this file.
+auto-clones it into third_party/PaddleOCR/.
 Pass --paddleocr_dir to point to an existing clone instead.
 """
 
@@ -22,7 +22,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
+_SCRIPT_DIR = Path(__file__).resolve().parent     # src/
+_ROOT_DIR = _SCRIPT_DIR.parent                       # project root
 
 # ---------------------------------------------------------------------------
 # Model architecture config (PP-OCRv5 server rec, SVTR_HGNet)
@@ -77,6 +78,8 @@ def _find_paddleocr(explicit_path=None):
     if explicit_path:
         candidates.append(Path(explicit_path))
     candidates += [
+        _ROOT_DIR / "third_party" / "PaddleOCR",
+        _ROOT_DIR / "PaddleOCR",          # older layout
         _SCRIPT_DIR / "PaddleOCR",
         _SCRIPT_DIR,
         Path.cwd(),
@@ -92,7 +95,7 @@ def _ensure_paddleocr(explicit_path=None):
     """Make ppocr importable. Auto-clones PaddleOCR if not found."""
     root = _find_paddleocr(explicit_path)
     if root is None:
-        clone_target = _SCRIPT_DIR / "PaddleOCR"
+        clone_target = _ROOT_DIR / "third_party" / "PaddleOCR"
         print(f"ppocr not found. Cloning PaddleOCR into {clone_target} ...")
         subprocess.check_call([
             "git", "clone", "--depth", "1",
@@ -114,9 +117,9 @@ def parse_args():
     p.add_argument("--image_path", required=True,
                     help="Path to a single image or a directory of images.")
     p.add_argument("--weights", default="",
-                    help="Path to model.safetensors (default: next to this script or in models/).")
+                    help="Path to model.safetensors (default: models/).")
     p.add_argument("--dict_path", default="",
-                    help="Path to en_dict.txt (default: next to this script).")
+                    help="Path to en_dict.txt (default: config/).")
     p.add_argument("--device", default="gpu", choices=["gpu", "cpu"],
                     help="Device for inference.")
     p.add_argument("--output_json", default="",
@@ -130,12 +133,16 @@ def resolve_path(user_path: str, filename: str) -> str:
     """Use user-supplied path if it exists, else fall back to script dir."""
     if user_path and os.path.exists(user_path):
         return user_path
-    for alt in (_SCRIPT_DIR / filename, _SCRIPT_DIR / "models" / filename):
+    for alt in (
+        _SCRIPT_DIR / filename,
+        _ROOT_DIR / "models" / filename,
+        _ROOT_DIR / "config" / filename,
+    ):
         if alt.exists():
             return str(alt)
     raise FileNotFoundError(
-        f"Could not find {filename}. Place it next to this script, in "
-        f"models/, or pass its path."
+        f"Could not find {filename}. Place it in models/ or config/, "
+        f"or pass its path."
     )
 
 

@@ -40,7 +40,7 @@ def test_normalize_plate(raw, expected):
 @pytest.mark.parametrize("raw, expected", [
     ("RJ14CV0002", "RJ14CV0002"),
     ("RJ14CVOOO2", "RJ14CV0002"),   # O -> 0 in the last four
-    ("8J14CV0002", "BJ14CV0002"),   # 8 -> B in the state code
+    ("8R14CV0002", "BR14CV0002"),   # 8 -> B in the state code
     ("RJ1SCV0002", "RJ15CV0002"),   # S -> 5 in the district
     ("RJ14CV002", ""),              # not 10 characters
     ("", ""),

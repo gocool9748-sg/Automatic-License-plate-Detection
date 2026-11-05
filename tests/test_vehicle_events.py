@@ -1,8 +1,9 @@
-"""Unit tests for register_clean_vehicle_event in videotest.py.
+"""Unit tests for one-record-per-vehicle event logging in videotest.py.
 
-Each stable plate should produce one vehicle record (and one RESULTS_LOG
-line), a later vehicle classification should fill in an UNKNOWN type, and
-invalid plates should be ignored. torch and ultralytics are stubbed out.
+All OCR readings of one physical vehicle are pooled in a "cluster";
+register_clean_vehicle_event marks the vehicle as confirmed and
+flush_pending_events logs it ONCE, with the plate decided from all its
+readings. torch and ultralytics are stubbed out.
 """
 
 import sys
@@ -28,31 +29,49 @@ PLATE = "TN09AB1234"
 
 @pytest.fixture(autouse=True)
 def fresh_state(monkeypatch, tmp_path):
-    monkeypatch.setattr(videotest, "confirmed_vehicle_events", {})
-    monkeypatch.setattr(videotest, "recent_vehicle_event_time", {})
-    monkeypatch.setattr(videotest, "track_history", defaultdict(list))
-    monkeypatch.setattr(videotest, "track_confidence", defaultdict(list))
+    for attr, value in (
+        ("confirmed_vehicle_events", {}),
+        ("recent_vehicle_event_time", {}),
+        ("plate_clusters", []),
+        ("track_to_cluster", {}),
+        ("logged_events", []),
+        ("track_frames", defaultdict(set)),
+        ("known_plates", set()),
+    ):
+        monkeypatch.setattr(videotest, attr, value)
     monkeypatch.setattr(videotest, "last_vehicle_event", None, raising=False)
     log = tmp_path / "results.log"
     monkeypatch.setattr(videotest, "RESULTS_LOG", str(log))
     return log
 
 
-def register(plate=PLATE, vehicle="CAR", conf=0.8, track_id=1):
-    videotest.register_clean_vehicle_event(plate, vehicle, conf, track_id, None)
+def read(plate=PLATE, track_id=1, conf=95.0, times=4, width=120):
+    for _ in range(times):
+        videotest._cluster_add_locked(track_id, plate, conf, width)
+
+
+def confirm(plate=PLATE, vehicle="CAR", track_id=1):
+    videotest.register_clean_vehicle_event(plate, vehicle, 0.8, track_id, None)
+
+
+def flush():
+    videotest.flush_pending_events(force=True)
 
 
 @pytest.mark.parametrize("plate", ["", None, "HELLO"])
 def test_invalid_plate_is_ignored(plate, fresh_state):
-    register(plate=plate)
+    read()
+    confirm(plate=plate)
+    flush()
     assert videotest.confirmed_vehicle_events == {}
     assert not fresh_state.exists()
 
 
 def test_first_event_is_recorded_and_logged(fresh_state, capsys):
-    videotest.track_history[1] = [PLATE, PLATE]
-    videotest.track_confidence[1] = [80.0, 90.0]
-    register()
+    read(conf=80.0, times=2)
+    read(conf=90.0, times=2)
+    confirm()
+    flush()
     record = videotest.confirmed_vehicle_events[PLATE]
     assert record["vehicle_type"] == "CAR"
     assert record["ocr_confidence"] == pytest.approx(85.0)
@@ -63,29 +82,61 @@ def test_first_event_is_recorded_and_logged(fresh_state, capsys):
     assert PLATE in capsys.readouterr().out
 
 
-def test_same_plate_is_recorded_once(fresh_state):
-    register()
-    register(track_id=2)
+def test_same_vehicle_is_recorded_once(fresh_state):
+    read(track_id=1)
+    read(track_id=2)          # tracker gave the same plate a new id
+    confirm(track_id=1)
+    confirm(track_id=2)
+    flush()
+    flush()
     assert len(fresh_state.read_text(encoding="utf-8").splitlines()) == 1
-    assert videotest.confirmed_vehicle_events[PLATE]["track_id"] == 1
 
 
-def test_late_classification_fills_unknown_type():
-    register(vehicle="UNKNOWN", conf=0.0)
-    register(vehicle="BUS", conf=0.7)
-    record = videotest.confirmed_vehicle_events[PLATE]
-    assert record["vehicle_type"] == "BUS"
-    assert record["vehicle_confidence"] == 0.7
+def test_one_character_misread_joins_the_vehicle(fresh_state):
+    read(plate=PLATE, times=4)
+    read(plate="TN09AB1284", track_id=2, times=1)   # 1 character off
+    confirm()
+    flush()
+    assert list(videotest.confirmed_vehicle_events) == [PLATE]
 
 
-def test_known_type_is_not_overwritten():
-    register(vehicle="CAR")
-    register(vehicle="TRUCK")
-    assert videotest.confirmed_vehicle_events[PLATE]["vehicle_type"] == "CAR"
+def test_fleet_buses_two_characters_apart_are_separate(fresh_state):
+    # TN48BK2144 and TN48BK2113 are two different buses of the same fleet.
+    read(plate="TN48BK2144", track_id=1)
+    read(plate="TN48BK2113", track_id=2)
+    confirm(plate="TN48BK2144", vehicle="BUS", track_id=1)
+    confirm(plate="TN48BK2113", vehicle="BUS", track_id=2)
+    flush()
+    assert set(videotest.confirmed_vehicle_events) == {"TN48BK2144", "TN48BK2113"}
+
+
+def test_plate_without_enough_support_is_not_logged(fresh_state):
+    read(times=videotest.FINAL_MIN_SUPPORT - 1)
+    confirm()
+    flush()
+    assert videotest.confirmed_vehicle_events == {}
+
+
+def test_low_confidence_plate_is_not_logged(fresh_state):
+    read(conf=videotest.MIN_LOG_CONFIDENCE - 20)
+    confirm()
+    flush()
+    assert videotest.confirmed_vehicle_events == {}
+
+
+def test_bus_votes_win_over_truck(fresh_state):
+    read()
+    confirm(vehicle="TRUCK")
+    confirm(vehicle="TRUCK")
+    confirm(vehicle="BUS")
+    flush()
+    assert videotest.confirmed_vehicle_events[PLATE]["vehicle_type"] == "BUS"
 
 
 def test_missing_log_setting_skips_file(monkeypatch, fresh_state):
     monkeypatch.setattr(videotest, "RESULTS_LOG", "")
-    register()
+    read()
+    confirm()
+    flush()
     assert PLATE in videotest.confirmed_vehicle_events
     assert not fresh_state.exists()

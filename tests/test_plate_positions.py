@@ -49,7 +49,8 @@ def test_character_is_allowed(ch, expected_type, allowed):
     ("8", "L", "B"),
     ("o", "D", "0"),     # lower-case input is upper-cased first
     ("S", "D", "5"),
-    ("7", "L", "7"),     # no known confusion -> left alone
+    ("7", "L", "T"),     # 7 in a letter slot is read as T
+    ("9", "L", "9"),     # no known confusion -> left alone
     ("A", "L", "A"),
     ("", "D", ""),
 ])
@@ -60,7 +61,7 @@ def test_position_correct(ch, expected_type, corrected):
 @pytest.mark.parametrize("raw, expected", [
     ("RJ14CV0002", "RJ14CV0002"),   # already valid
     ("RJI4CV0OO2", "RJ14CV0002"),   # letters read in digit slots
-    ("8J14CV0002", "BJ14CV0002"),   # digit read in a letter slot
+    ("8R14CV0002", "BR14CV0002"),   # digit read in a letter slot
     ("rj 14 cv 0002", "RJ14CV0002"),  # spacing and case are cleaned
 ])
 def test_correct_10_char_plate_fixes_confusions(raw, expected):
@@ -69,7 +70,7 @@ def test_correct_10_char_plate_fixes_confusions(raw, expected):
 
 @pytest.mark.parametrize("raw", [
     "RJ14C0002",    # 9 characters: not this format
-    "RJ14C70002",   # 7 in a letter slot has no letter substitute
+    "RJ14C90002",   # 9 in a letter slot has no letter substitute
     "",
 ])
 def test_correct_10_char_plate_rejects(raw):

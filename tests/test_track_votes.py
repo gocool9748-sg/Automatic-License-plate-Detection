@@ -42,10 +42,25 @@ def test_unknown_votes_are_ignored():
 
 
 def test_votes_accumulate_by_confidence():
-    webcam.vote_vehicle(1, "CAR", 0.6)
-    webcam.vote_vehicle(1, "CAR", 0.6)
-    webcam.vote_vehicle(1, "TRUCK", 0.9)   # one confident bad frame
+    for _ in range(4):
+        webcam.vote_vehicle(1, "CAR", 0.6)
+    webcam.vote_vehicle(1, "TRUCK", 0.5)   # one weaker bad frame
     assert webcam.get_track_vehicle(1) == "CAR"
+
+
+def test_recent_votes_dominate():
+    # The per-track type follows the box the plate is on now (old votes
+    # decay); the final type is decided per vehicle by decide_vehicle_type.
+    webcam.vote_vehicle(1, "CAR", 0.6)
+    webcam.vote_vehicle(1, "TRUCK", 0.9)
+    webcam.vote_vehicle(1, "TRUCK", 0.9)
+    assert webcam.get_track_vehicle(1) == "TRUCK"
+
+
+def test_bus_wins_with_enough_share():
+    assert webcam.decide_vehicle_type({"TRUCK": 2.0, "BUS": 1.0}) == "BUS"
+    assert webcam.decide_vehicle_type({"TRUCK": 9.0, "BUS": 1.0}) == "TRUCK"
+    assert webcam.decide_vehicle_type({}) == "UNKNOWN"
 
 
 def test_tracks_are_independent():

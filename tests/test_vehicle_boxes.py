@@ -36,30 +36,30 @@ def test_map_vehicle_class(original, expected):
 
 def test_iou_of_identical_boxes_is_one():
     box = (10, 10, 50, 50)
-    assert webcam.vehicle_box_iou(box, box) == pytest.approx(1.0)
+    assert webcam.box_iou(box, box) == pytest.approx(1.0)
 
 
 def test_iou_of_disjoint_boxes_is_zero():
-    assert webcam.vehicle_box_iou((0, 0, 10, 10), (20, 20, 30, 30)) == 0.0
+    assert webcam.box_iou((0, 0, 10, 10), (20, 20, 30, 30)) == 0.0
 
 
 def test_iou_of_half_overlap():
     # Two 10x10 boxes overlapping in a 5x10 strip: 50 / (100 + 100 - 50).
-    iou = webcam.vehicle_box_iou((0, 0, 10, 10), (5, 0, 15, 10))
+    iou = webcam.box_iou((0, 0, 10, 10), (5, 0, 15, 10))
     assert iou == pytest.approx(50 / 150)
 
 
-def test_iou_ignores_extra_fields_and_degenerate_boxes():
-    assert webcam.vehicle_box_iou((0, 0, 10, 10, "CAR", 0.9),
-                                  (0, 0, 10, 10, "CAR", 0.8)) == pytest.approx(1.0)
-    assert webcam.vehicle_box_iou((5, 5, 5, 5), (5, 5, 5, 5)) == 0.0
+def test_iou_of_degenerate_boxes_is_zero():
+    assert webcam.box_iou((5, 5, 5, 5), (5, 5, 5, 5)) == 0.0
 
 
 def test_containment_of_box_inside_another_is_one():
     outer = (0, 0, 100, 100)
     inner = (10, 10, 30, 30)
-    assert webcam.vehicle_containment_ratio(outer, inner) == pytest.approx(1.0)
-    assert webcam.vehicle_containment_ratio(inner, outer) == pytest.approx(1.0)
+    _iou, contain = webcam._overlap(outer, inner)
+    assert contain == pytest.approx(1.0)
+    _iou, contain = webcam._overlap(inner, outer)
+    assert contain == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("point, inside", [
@@ -85,10 +85,10 @@ def test_suppress_treats_contained_box_as_duplicate_across_classes():
     assert webcam.suppress_duplicate_vehicle_detections([inside, big]) == [big]
 
 
-def test_suppress_keeps_separate_vehicles_sorted_left_to_right():
+def test_suppress_keeps_separate_vehicles_strongest_first():
     right = (300, 0, 400, 100, "CAR", 0.95)
     left = (0, 0, 100, 100, "BIKE", 0.40)
-    assert webcam.suppress_duplicate_vehicle_detections([right, left]) == [left, right]
+    assert webcam.suppress_duplicate_vehicle_detections([left, right]) == [right, left]
 
 
 def test_suppress_passes_through_zero_or_one_detection():

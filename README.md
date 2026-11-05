@@ -134,10 +134,19 @@ Main settings at the top of `webcam.py` / `videotest.py`:
 
 | Setting | Default | Effect |
 | --- | --- | --- |
-| `YOLO_CONFIDENCE` | 0.45 | Minimum plate detection confidence |
-| `VEHICLE_CONFIDENCE` | 0.40 (webcam), 0.25 (video) | Minimum vehicle detection confidence |
-| `OCR_INTERVAL` | 0.14 s | Time between OCR requests |
-| `MIN_VOTES` | 2 | Readings needed before a plate is accepted |
-| `MIN_OCR_CONFIDENCE` | 45 | Discard OCR readings below this |
-| `MIN_PLATE_PIXEL_WIDTH` | 35 | Ignore plates smaller than this |
-| `BLUR_VARIANCE_THRESHOLD` | 20.0 | Skip crops that are too blurry |
+| `YOLO_CONFIDENCE` | 0.25 | Minimum plate detection confidence |
+| `VEHICLE_CONFIDENCE` | 0.25 | Minimum vehicle detection confidence |
+| `OCR_INTERVAL` | 0.03 s | Time between OCR requests per plate |
+| `MIN_VOTES` | 5 | Readings needed before a plate is shown as stable |
+| `MIN_OCR_CONFIDENCE` | 30 | Discard OCR readings below this |
+| `MIN_LOG_CONFIDENCE` | 70 | A vehicle is logged only if its plate reads average at least this |
+| `MIN_PLATE_PIXEL_WIDTH` | 20 | Ignore plates smaller than this |
+| `BLUR_VARIANCE_THRESHOLD` | 3.0 | Skip crops that are too blurry |
+| `PLATE_DETECT_GRAYSCALE` | True | Feed the plate detector a grayscale frame (finds yellow-on-yellow bus plates) |
+| `HOME_STATE` | `TN` | A state code one character off is corrected to this |
+| `CLUSTER_MAX_DIFF` | 1 | Plates this many characters apart are treated as the same vehicle |
+| `YELLOW_BODY_IS_BUS` | True | A yellow vehicle the model calls TRUCK is logged as BUS |
+
+See [ACCURACY_FIXES.md](ACCURACY_FIXES.md) for what each accuracy setting fixes. For the
+best results, copy `known_plates.example.txt` to `known_plates.txt` and list every
+fleet plate: readings 1-2 characters off are then corrected to the right bus.

@@ -1,0 +1,13 @@
+# Known college bus plates - one per line, '#' starts a comment.
+#
+# Rename this file to known_plates.txt to switch it on. When it exists, a
+# decided plate that is 1-2 characters away from exactly ONE plate below is
+# corrected to it (e.g. TN43BK2113 -> TN48BK2113). Plates not in the list are
+# still logged exactly as they were read.
+#
+# Add every bus in the fleet here for the best accuracy.
+
+TN48W9259    # bus 27
+TN48BK2144   # bus 88
+TN48BJ1175   # bus 68
+TN48BK2113   # bus 91

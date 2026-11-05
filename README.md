@@ -116,8 +116,10 @@ python vehicle_test.py
 ## Tests
 
 The pure helpers in `webcam.py`, `videotest.py`, `test.py` and
-`awiros_worker.py` (plate text cleaning and voting, crop quality, vehicle
-box overlap, OCR socket framing) have unit tests that need no GPU or model
+`awiros_worker.py` (plate text cleaning and voting, per-track plate history,
+crop quality, vehicle box overlap, plate-to-vehicle matching, vehicle type
+voting, one-record-per-vehicle event logging, OCR socket framing) have unit
+tests that need no GPU or model
 weights. torch and ultralytics are stubbed out, so only a few light packages
 are required:
 

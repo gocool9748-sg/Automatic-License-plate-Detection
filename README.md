@@ -43,7 +43,7 @@ LPR/
 ├── models/                   best.pt, model.safetensors (Git LFS), uvh26_vehicle.pt
 ├── videos/                   input videos (not in git)
 ├── images/                   sample images
-├── outputs/                  results.log, debug_crops/, vehicle_test/ (created on first run)
+├── outputs/                  register/, evidence/, results.log, debug_crops/ (created on first run)
 ├── third_party/PaddleOCR/    cloned automatically on first run (not in git)
 ├── docs/ACCURACY_FIXES.md    what each accuracy setting fixes and why
 ├── tests/                    unit tests (no GPU or model weights needed)
@@ -88,7 +88,9 @@ models/model.safetensors     OCR weights (Git LFS)
 models/uvh26_vehicle.pt      vehicle model (add yourself)
 videos/*.mp4                 input videos (VIDEO_PATH in webcam.py / videotest.py)
 videos/movingcars.mp4        input for tools/vehicle_test.py
-outputs/results.log          per-vehicle CSV log
+outputs/register/<date>.csv  daily gate register: which bus came in when (opens in Excel)
+outputs/evidence/<date>/     proof images: plate crop + vehicle snapshot per entry
+outputs/results.log          per-vehicle CSV log (simple, all days in one file)
 outputs/debug_crops/         best plate crop per vehicle
 outputs/vehicle_test/        tools/vehicle_test.py output video
 config/known_plates.txt      your fleet list (optional, see Tuning)
@@ -122,9 +124,24 @@ python videotest.py
 
 Keys: `q` / `Esc` quit · `r` reset tracked plates · `Space` pause (video only).
 
-Final results are appended to `outputs/results.log` as CSV
-(`time,plate,vehicle,confidence`). The best plate crop for each vehicle is
-saved to the debug crops folder while `DEBUG_SAVE_CROPS = True`.
+**Gate register and proof.** Every vehicle is logged once, with proof:
+
+- `outputs/register/2026-11-06.csv` - one file per day, one row per vehicle:
+
+  | date | time | plate | bus | vehicle | confidence | in_fleet | plate_image | vehicle_image |
+  |---|---|---|---|---|---|---|---|---|
+  | 2026-11-06 | 08:12:43 | TN48BK2144 | bus 88 | BUS | 99 | yes | evidence/2026-11-06/081243_TN48BK2144_plate.jpg | evidence/.../081243_TN48BK2144_vehicle.jpg |
+
+  `time` is when the vehicle was first seen. `bus` and `in_fleet` come from
+  `config/known_plates.txt` (write the bus name after a `#`, e.g.
+  `TN48BK2144  # bus 88`); `in_fleet = no` flags a plate that is not in your list.
+- `outputs/evidence/<date>/` - the sharpest plate crop and a vehicle snapshot
+  with the plate boxed in green, named `<time>_<plate>_plate.jpg` /
+  `_vehicle.jpg`, so a disputed entry can be checked in seconds.
+- `outputs/results.log` - the same entries as plain CSV
+  (`time,plate,vehicle,confidence`), all days in one file.
+
+Set `SAVE_EVIDENCE = False` in `src/lpr.py` to skip the images.
 
 **OCR on plate images**
 

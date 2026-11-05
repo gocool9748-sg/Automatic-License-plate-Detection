@@ -284,6 +284,27 @@ DEBUG_OCR = False  # set True to print "[OCR RAW] ..." lines
 DEBUG_SAVE_CROPS = True
 DEBUG_CROPS_DIR = os.path.join(OUTPUT_DIR, "debug_crops")
 
+# ------------------------------------------------------------
+# PROOF + GATE REGISTER
+# ------------------------------------------------------------
+# Every logged vehicle gets proof images, so a disputed entry can be checked
+# in seconds:
+#   outputs/evidence/<date>/<time>_<plate>_plate.jpg     sharpest plate crop
+#   outputs/evidence/<date>/<time>_<plate>_vehicle.jpg   vehicle snapshot, plate boxed
+# and one row in the day's register (opens in Excel):
+#   outputs/register/<date>.csv
+#   date,time,plate,bus,vehicle,confidence,in_fleet,plate_image,vehicle_image
+# "time" is when the vehicle was FIRST seen; "bus" is the comment after the
+# plate in config/known_plates.txt (e.g. "TN48W9259  # bus 27").
+SAVE_EVIDENCE = True
+EVIDENCE_DIR = os.path.join(OUTPUT_DIR, "evidence")
+REGISTER_DIR = os.path.join(OUTPUT_DIR, "register")
+SNAPSHOT_MAX_WIDTH = 640         # vehicle snapshots are scaled down to this width
+REGISTER_COLUMNS = (
+    "date", "time", "plate", "bus", "vehicle", "confidence", "in_fleet",
+    "plate_image", "vehicle_image",
+)
+
 
 # ============================================================
 # INDIAN PLATE FORMAT
@@ -331,6 +352,8 @@ track_width = defaultdict(list)
 last_ocr_time = defaultdict(float)
 
 best_crop = {}
+# track id -> (quality, plate crop, vehicle snapshot, time) for the proof images
+best_evidence = {}
 best_crop_quality = defaultdict(float)
 
 confirmed_text = {}
@@ -355,6 +378,7 @@ track_to_cluster = {}
 track_frames = defaultdict(set)   # track id -> detector frame numbers it appeared in
 logged_events = []                # [(plate, time, cluster)]
 known_plates = set()
+known_plate_labels = {}           # plate -> bus name from known_plates.txt
 
 track_vehicle_votes = defaultdict(lambda: defaultdict(float))
 
@@ -1931,9 +1955,123 @@ def hamming(a, b):
     return sum(x != y for x, y in zip(a, b))
 
 
+def make_vehicle_snapshot(frame, plate_box):
+    """Small picture of the vehicle with its plate boxed in green: the
+    smallest vehicle box containing the plate, or the area around the plate
+    when no vehicle box is known."""
+    H, W = frame.shape[:2]
+    px1, py1, px2, py2 = [int(v) for v in plate_box]
+    pcx, pcy = (px1 + px2) / 2.0, (py1 + py2) / 2.0
+    pw, ph = max(px2 - px1, 1), max(py2 - py1, 1)
+
+    region = None
+    for vx1, vy1, vx2, vy2, _vt, _vc in vehicle_detections:
+        if point_inside_box(pcx, pcy, (vx1, vy1, vx2, vy2)):
+            area = (vx2 - vx1) * (vy2 - vy1)
+            if region is None or area < region[0]:
+                region = (area, int(vx1), int(vy1), int(vx2), int(vy2))
+
+    if region is not None:
+        _a, x1, y1, x2, y2 = region
+    else:
+        x1, x2 = px1 - 3 * pw, px2 + 3 * pw
+        y1, y2 = py1 - 8 * ph, py2 + 2 * ph
+
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(W, max(x2, px2 + 2)), min(H, max(y2, py2 + 2))
+    snap = frame[y1:y2, x1:x2].copy()
+
+    if snap.size == 0:
+        return None
+
+    cv2.rectangle(snap, (px1 - x1, py1 - y1), (px2 - x1, py2 - y1), (0, 255, 0), 3)
+
+    if snap.shape[1] > SNAPSHOT_MAX_WIDTH:
+        scale = SNAPSHOT_MAX_WIDTH / float(snap.shape[1])
+        snap = cv2.resize(snap, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+    return snap
+
+
+def best_evidence_for(cluster):
+    """(plate crop, vehicle snapshot) with the best quality over all tracks of
+    a vehicle, or (None, None). Caller must hold result_lock."""
+    best = None
+    for tid in cluster["tracks"]:
+        ev = best_evidence.get(tid)
+        if ev is not None and (best is None or ev[0] > best[0]):
+            best = ev
+    return (best[1], best[2]) if best else (None, None)
+
+
+def save_evidence(record, plate_crop, snapshot):
+    """Write the proof images; returns their paths relative to OUTPUT_DIR."""
+    if not SAVE_EVIDENCE:
+        return "", ""
+
+    day, clock = record["first_seen"].split(" ")
+    stem = f"{clock.replace(':', '')}_{record['plate']}"
+    folder = os.path.join(EVIDENCE_DIR, day)
+    saved = []
+
+    for suffix, image in (("plate", plate_crop), ("vehicle", snapshot)):
+        if image is None or image.size == 0:
+            saved.append("")
+            continue
+        path = os.path.join(folder, f"{stem}_{suffix}.jpg")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            if cv2.imwrite(path, image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+                saved.append(os.path.relpath(path, OUTPUT_DIR).replace(os.sep, "/"))
+                continue
+        except (OSError, cv2.error) as e:
+            print(f"[PROOF] Could not save {path}: {e}")
+        saved.append("")
+
+    return saved[0], saved[1]
+
+
+def write_register(record, plate_image, vehicle_image):
+    """Append one row to outputs/register/<date>.csv (header on a new file)."""
+    if not REGISTER_DIR:
+        return
+
+    import csv
+
+    day, clock = record["first_seen"].split(" ")
+    path = os.path.join(REGISTER_DIR, f"{day}.csv")
+    in_fleet = ""
+    if known_plates:
+        in_fleet = "yes" if record["plate"] in known_plates else "no"
+
+    row = {
+        "date": day,
+        "time": clock,
+        "plate": record["plate"],
+        "bus": known_plate_labels.get(record["plate"], ""),
+        "vehicle": record["vehicle_type"],
+        "confidence": f"{record['ocr_confidence']:.0f}",
+        "in_fleet": in_fleet,
+        "plate_image": plate_image,
+        "vehicle_image": vehicle_image,
+    }
+
+    try:
+        os.makedirs(REGISTER_DIR, exist_ok=True)
+        new_file = not os.path.isfile(path)
+        with open(path, "a", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=REGISTER_COLUMNS)
+            if new_file:
+                writer.writeheader()
+            writer.writerow(row)
+    except OSError as e:
+        print(f"[REGISTER] Could not write {path}: {e}")
+
+
 def load_known_plates():
-    global known_plates
+    global known_plates, known_plate_labels
     known_plates = set()
+    known_plate_labels = {}
 
     if not KNOWN_PLATES_FILE or not os.path.isfile(KNOWN_PLATES_FILE):
         print("[Known] No known_plates.txt found - plates are decided by voting only.")
@@ -1945,6 +2083,10 @@ def load_known_plates():
                 p = clean_text(line.split("#")[0])
                 if is_valid_plate(p):
                     known_plates.add(p)
+                    if "#" in line:
+                        label = line.split("#", 1)[1].strip()
+                        if label:
+                            known_plate_labels[p] = label
     except OSError as e:
         print(f"[Known] Could not read {KNOWN_PLATES_FILE}: {e}")
         return
@@ -2210,13 +2352,16 @@ def flush_pending_events(force=False):
                 "ocr_confidence": float(cluster_confidence(c, plate)),
                 "track_id": int(next(iter(c["tracks"]))),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "first_seen": time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(c["first_seen"])
+                ),
             }
 
             confirmed_vehicle_events[plate] = record
             recent_vehicle_event_time[plate] = now
             logged_events.append((plate, now, c))
             last_vehicle_event = record.copy()
-            done.append(record)
+            done.append((record, best_evidence_for(c)))
 
         # Housekeeping: forget old clusters.
         stale = [
@@ -2236,7 +2381,14 @@ def flush_pending_events(force=False):
             e for e in logged_events if now - e[1] < CLUSTER_PRUNE_AFTER
         ]
 
-    for rec in done:
+        # Proof images of tracks not seen for a while are no longer needed.
+        for tid in [
+            t for t, ev in best_evidence.items()
+            if now - ev[3] > CLUSTER_PRUNE_AFTER
+        ]:
+            del best_evidence[tid]
+
+    for rec, (plate_crop, snapshot) in done:
         print(
             "\n" + format_result_box(
                 rec["plate"],
@@ -2257,6 +2409,12 @@ def flush_pending_events(force=False):
                     )
             except OSError:
                 pass
+
+        plate_image, vehicle_image = save_evidence(rec, plate_crop, snapshot)
+        write_register(rec, plate_image, vehicle_image)
+
+        if plate_image or vehicle_image:
+            print(f"[PROOF] {rec['plate']}: outputs/{plate_image or vehicle_image}")
 
 
 # ============================================================
@@ -2631,6 +2789,15 @@ def detector_loop(model, vehicle_model, device):
                     if quality > best_crop_quality[track_id]:
                         best_crop[track_id] = crop
                         best_crop_quality[track_id] = quality
+
+                        if SAVE_EVIDENCE:
+                            snapshot = make_vehicle_snapshot(
+                                clean_frame, (x1, y1, x2, y2)
+                            )
+                            with result_lock:
+                                best_evidence[track_id] = (
+                                    quality, crop, snapshot, time.time()
+                                )
 
                     if should_ocr:
                         best = best_crop.get(track_id)
@@ -3072,6 +3239,7 @@ def main():
 
                 last_ocr_time.clear()
                 best_crop.clear()
+                best_evidence.clear()
                 best_crop_quality.clear()
                 track_vehicle_votes.clear()
                 ocr_fail_count.clear()

@@ -40,6 +40,11 @@ def fresh_state(monkeypatch, tmp_path):
     ):
         monkeypatch.setattr(lpr, attr, value)
     monkeypatch.setattr(lpr, "last_vehicle_event", None, raising=False)
+    monkeypatch.setattr(lpr, "best_evidence", {})
+    monkeypatch.setattr(lpr, "known_plate_labels", {})
+    monkeypatch.setattr(lpr, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(lpr, "EVIDENCE_DIR", str(tmp_path / "evidence"))
+    monkeypatch.setattr(lpr, "REGISTER_DIR", str(tmp_path / "register"))
     log = tmp_path / "results.log"
     monkeypatch.setattr(lpr, "RESULTS_LOG", str(log))
     return log
@@ -140,3 +145,83 @@ def test_missing_log_setting_skips_file(monkeypatch, fresh_state):
     flush()
     assert PLATE in lpr.confirmed_vehicle_events
     assert not fresh_state.exists()
+
+
+def _register_rows(tmp_dir):
+    import csv
+    files = list((tmp_dir / "register").glob("*.csv"))
+    assert len(files) == 1
+    with open(files[0], newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_register_row_and_proof_images_are_saved(fresh_state):
+    import numpy as np
+    tmp_dir = fresh_state.parent
+    plate_crop = np.full((30, 120, 3), 200, np.uint8)
+    snapshot = np.full((300, 400, 3), 100, np.uint8)
+    lpr.best_evidence[1] = (5.0, plate_crop, snapshot, lpr.time.time())
+    lpr.known_plates.add(PLATE)
+    lpr.known_plate_labels[PLATE] = "bus 27"
+    read()
+    confirm(vehicle="BUS")
+    flush()
+
+    rows = _register_rows(tmp_dir)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["plate"] == PLATE
+    assert row["bus"] == "bus 27"
+    assert row["vehicle"] == "BUS"
+    assert row["in_fleet"] == "yes"
+    assert row["plate_image"].endswith(f"_{PLATE}_plate.jpg")
+    assert row["vehicle_image"].endswith(f"_{PLATE}_vehicle.jpg")
+    assert (tmp_dir / row["plate_image"]).is_file()
+    assert (tmp_dir / row["vehicle_image"]).is_file()
+
+
+def test_best_quality_crop_of_the_vehicle_is_used(fresh_state):
+    import numpy as np
+    import cv2
+    tmp_dir = fresh_state.parent
+    blurry = np.full((30, 120, 3), 10, np.uint8)
+    sharp = np.full((30, 120, 3), 250, np.uint8)
+    lpr.best_evidence[1] = (1.0, blurry, None, lpr.time.time())
+    lpr.best_evidence[2] = (9.0, sharp, None, lpr.time.time())
+    read(track_id=1)
+    read(track_id=2)
+    confirm(track_id=1)
+    flush()
+
+    row = _register_rows(tmp_dir)[0]
+    saved = cv2.imread(str(tmp_dir / row["plate_image"]))
+    assert saved.mean() > 200          # the sharp crop of track 2 was saved
+    assert row["vehicle_image"] == ""  # no snapshot available -> empty, no crash
+
+
+def test_register_without_fleet_list_leaves_fleet_column_empty(fresh_state):
+    read()
+    confirm()
+    flush()
+    row = _register_rows(fresh_state.parent)[0]
+    assert row["in_fleet"] == ""
+    assert row["plate_image"] == ""     # no proof images collected
+
+
+def test_known_plate_labels_are_read_from_the_fleet_file(tmp_path, monkeypatch):
+    fleet = tmp_path / "known_plates.txt"
+    fleet.write_text("# fleet\nTN48W9259   # bus 27\nTN48BK2144\n", encoding="utf-8")
+    monkeypatch.setattr(lpr, "KNOWN_PLATES_FILE", str(fleet))
+    lpr.load_known_plates()
+    assert lpr.known_plates == {"TN48W9259", "TN48BK2144"}
+    assert lpr.known_plate_labels == {"TN48W9259": "bus 27"}
+
+
+def test_vehicle_snapshot_boxes_the_plate(monkeypatch):
+    import numpy as np
+    frame = np.zeros((1080, 1920, 3), np.uint8)
+    monkeypatch.setattr(lpr, "vehicle_detections", [(500, 300, 1500, 1000, "BUS", 0.9)])
+    snap = lpr.make_vehicle_snapshot(frame, (900, 850, 1050, 890))
+    assert snap is not None
+    assert snap.shape[1] <= lpr.SNAPSHOT_MAX_WIDTH
+    assert snap[..., 1].max() == 255     # green plate box drawn

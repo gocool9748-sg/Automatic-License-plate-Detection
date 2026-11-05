@@ -22,7 +22,7 @@ from ultralytics import YOLO
 YOLO_WEIGHTS = r"G:\LPR\models\best.pt"
 
 # Test video path - change this to any video you want to test.
-VIDEO_PATH = r"G:\LPR\videos\cb4.mp4"
+VIDEO_PATH = r"G:\LPR\videos\cb2.mp4"
 # Keep video in its original orientation.
 MIRROR_CAMERA = False
 

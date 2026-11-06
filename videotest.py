@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src
 import lpr  # noqa: E402
 
 SETTINGS = dict(
-    VIDEO_PATH=os.path.join(lpr.BASE_DIR, "videos", "cb3.mp4"),
+    VIDEO_PATH=os.path.join(lpr.BASE_DIR, "videos", "srm6.mp4"),
     ACCURACY_MODE=False,
     PLAYBACK_SPEED=0.4,          # 0.4 = slow motion, more frames read per bus
     VEHICLE_INFER_EVERY_N_FRAMES=2,

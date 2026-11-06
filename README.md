@@ -161,7 +161,8 @@ python tools/vehicle_test.py
 The pure helpers in `src/lpr.py`, `src/ocr_image.py` and
 `awiros_worker.py` (plate text cleaning and voting, per-track plate history,
 crop quality, vehicle box overlap, plate-to-vehicle matching, vehicle type
-voting, one-record-per-vehicle event logging, launcher settings, live camera
+voting, one-record-per-vehicle event logging, known-plate snapping, duplicate
+plate box merging, tracker id jump detection, launcher settings, live camera
 reader, OCR socket framing) have unit
 tests that need no GPU or model
 weights. torch and ultralytics are stubbed out, so only a few light packages

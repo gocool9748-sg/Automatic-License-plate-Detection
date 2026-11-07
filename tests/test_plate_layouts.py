@@ -77,3 +77,14 @@ def test_best_layout_fix_reads_bh_series_plates():
 @pytest.mark.parametrize("raw", ["TN0XAB1234", "QQ09AB1234", "TN09AB"])
 def test_best_layout_fix_gives_up_on_impossible_readings(raw):
     assert lpr._best_layout_fix(raw) == ("", 99.0)
+
+
+def test_bh_series_plates_are_not_charged_the_one_digit_rto_penalty():
+    assert lpr._best_layout_fix("22BH1234AB") == ("22BH1234AB", 0.0)
+    assert lpr._best_layout_fix("DL3CAB1234") == ("DL3CAB1234", 0.5)
+
+
+def test_normalize_plate_fixes_a_bh_series_look_alike_without_truncating():
+    # Used to come out as 22BH1234A: the BH reading needing one fix cost 1.5,
+    # so dropping the last character looked cheaper.
+    assert lpr.normalize_plate("22BH1234A8") == "22BH1234AB"

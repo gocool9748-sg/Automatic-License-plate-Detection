@@ -519,13 +519,16 @@ def _best_layout_fix(text):
         if layout.startswith("DD"):
             if cand[2:4] != "BH":
                 continue
-        elif HOME_STATE and cand[:2] not in VALID_STATE_CODES:
-            if sum(a != b for a, b in zip(cand[:2], HOME_STATE)) == 1:
-                cand = HOME_STATE + cand[2:]
-                cost += 1
+        else:
+            if HOME_STATE and cand[:2] not in VALID_STATE_CODES:
+                if sum(a != b for a, b in zip(cand[:2], HOME_STATE)) == 1:
+                    cand = HOME_STATE + cand[2:]
+                    cost += 1
 
-        if layout[3] == "L":
-            cost += 0.5   # 1-digit RTO code is the rarer layout
+            # 1-digit RTO code is the rarer layout. BH-series layouts
+            # ("DDLL...") also have a letter at index 3 but no RTO code.
+            if layout[3] == "L":
+                cost += 0.5
 
         if is_valid_plate(cand) and cost < best[1]:
             best = (cand, cost)

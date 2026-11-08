@@ -650,7 +650,16 @@ def plate_quality(image):
 
 
 def enhance_plate_for_ocr(plate):
-    """Upscale + local contrast + border padding for small, dusty plates."""
+    """Upscale + local contrast + border padding for small, dusty plates.
+
+    Accepts BGR, BGRA or grayscale crops (like sharpness and plate_quality)
+    and always returns a 3-channel BGR image.
+    """
+    if plate.ndim == 2 or plate.shape[2] == 1:
+        plate = cv2.cvtColor(plate, cv2.COLOR_GRAY2BGR)
+    elif plate.shape[2] == 4:
+        plate = cv2.cvtColor(plate, cv2.COLOR_BGRA2BGR)
+
     h, w = plate.shape[:2]
 
     if w < OCR_TARGET_WIDTH:

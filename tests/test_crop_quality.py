@@ -79,3 +79,23 @@ def test_plate_quality_prefers_sharper_crop():
     blurred = lpr.cv2.GaussianBlur(sharp, (15, 15), 5)
     assert lpr.plate_quality(sharp) > lpr.plate_quality(blurred)
 
+
+
+@pytest.mark.parametrize("shape", [(20, 60), (20, 60, 1), (20, 60, 3), (20, 60, 4)])
+def test_enhance_plate_for_ocr_accepts_any_channel_layout(shape):
+    out = lpr.enhance_plate_for_ocr(np.full(shape, 128, dtype=np.uint8))
+    assert out.ndim == 3 and out.shape[2] == 3
+
+
+def test_enhance_plate_for_ocr_upscales_small_plates_and_pads():
+    out = lpr.enhance_plate_for_ocr(_checkerboard(20, 60))
+    scale = lpr.OCR_TARGET_WIDTH / 60.0
+    # Upscaled to the OCR target width, then 8 px of padding on every side.
+    assert out.shape[1] == lpr.OCR_TARGET_WIDTH + 16
+    assert out.shape[0] == round(20 * scale) + 16
+
+
+def test_enhance_plate_for_ocr_keeps_wide_plates_at_size():
+    width = lpr.OCR_TARGET_WIDTH + 40
+    out = lpr.enhance_plate_for_ocr(_checkerboard(30, width))
+    assert out.shape[:2] == (30 + 16, width + 16)

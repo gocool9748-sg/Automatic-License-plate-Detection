@@ -164,8 +164,9 @@ crop quality, vehicle box overlap, plate-to-vehicle matching, vehicle type
 voting, one-record-per-vehicle event logging, known-plate snapping, duplicate
 plate box merging, tracker id jump detection, plate layout fixing, plate
 structure patterns, dark banner and yellow bus body checks, plate position on
-the vehicle, vehicle cluster overlap and consensus, launcher settings, live
-camera reader, OCR socket framing) have unit
+the vehicle, vehicle cluster overlap and consensus, persistent vehicle box
+tracking, ROI plate IDs, OCR crop enhancement, overlay draw commands, the step
+profiler, launcher settings, live camera reader, OCR socket framing) have unit
 tests that need no GPU or model
 weights. torch and ultralytics are stubbed out, so only a few light packages
 are required:

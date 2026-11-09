@@ -2484,7 +2484,12 @@ def draw_result(
 # ============================================================
 
 def ensure_tracker_yaml():
-    """Write a ByteTrack config tolerant of frame gaps; return its path."""
+    """Point TRACKER_CFG at a ByteTrack config tolerant of frame gaps.
+
+    An existing config/bytetrack_lpr.yaml is used as-is, so hand-tuned
+    tracker settings survive a restart; the default file is only written
+    when it is missing.
+    """
     global TRACKER_CFG
 
     if not USE_LOOSE_TRACKER:
@@ -2496,6 +2501,12 @@ def ensure_tracker_yaml():
             CONFIG_DIR, TRACKER_YAML
         )
 
+        if os.path.isfile(path):
+            TRACKER_CFG = path
+            print(f"[Tracker] Using loose ByteTrack config: {path}")
+            return
+
+        os.makedirs(CONFIG_DIR, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(
                 "tracker_type: bytetrack\n"

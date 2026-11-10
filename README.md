@@ -169,7 +169,7 @@ tracking, ROI plate IDs, OCR crop enhancement, overlay draw commands, the step
 profiler, launcher settings, live camera reader, OCR socket framing, the
 ByteTrack config loader, proof image saving, the gate register CSV, classical
 plate candidates, debug crop saving and cleanup, the OCR client socket
-protocol) have unit tests that need no GPU or model
+protocol, OCR pass selection, PaddleOCR path setup) have unit tests that need no GPU or model
 weights. torch and ultralytics are stubbed out, so only a few light packages
 are required:
 
